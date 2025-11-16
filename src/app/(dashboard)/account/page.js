@@ -135,13 +135,36 @@ export default function Account() {
     }
   };
 
+  // const openPortal = async () => {
+  //   try {
+  //     const res = await fetch('/api/stripe/portal', { method: 'POST' });
+  //     const { url } = await res.json();
+  //     window.location.href = url;
+  //   } catch (error) {
+  //     toast({ title: "Failed to open billing", variant: "destructive" });
+  //   }
+  // };
+
   const openPortal = async () => {
+    if (!stripeCustomerId) {
+      toast({ title: "No billing info", description: "Customer not found.", variant: "destructive" });
+      return;
+    }
+
     try {
-      const res = await fetch('/api/stripe/portal', { method: 'POST' });
+      const res = await fetch('/api/stripe/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId: stripeCustomerId }),
+      });
+
+      if (!res.ok) throw new Error('Failed to create portal');
+
       const { url } = await res.json();
       window.location.href = url;
     } catch (error) {
-      toast({ title: "Failed to open billing", variant: "destructive" });
+      console.error('Portal error:', error);
+      toast({ title: "Failed to open billing", description: error.message, variant: "destructive" });
     }
   };
 

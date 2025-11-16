@@ -3,7 +3,7 @@
 import { createContext, useState, useEffect, useContext } from 'react';
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
 import { app } from '@/lib/firebase';
-import { getFirestore, doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 
 const auth = getAuth(app);
@@ -18,8 +18,9 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [plan, setPlan] = useState(null);
   const [phone, setPhone] = useState('');
+  const [stripeCustomerId, setStripeCustomerId] = useState(null); // ← NEW
   const [teamMembers, setTeamMembers] = useState([]);
-  const [loading, setLoading] = useState(true); // Add loading state
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
@@ -28,33 +29,30 @@ export function AuthProvider({ children }) {
       if (currentUser) {
         const userRef = doc(db, 'users', currentUser.uid);
         
-        // Use onSnapshot to listen for real-time plan changes
         const unsubSnapshot = onSnapshot(userRef, (snap) => {
           if (snap.exists()) {
             const data = snap.data();
-            setPlan(data?.plan || 'free'); // Set plan from data
+            setPlan(data?.plan || 'free');
             setPhone(data?.phone || '');
+            setStripeCustomerId(data?.stripeCustomerId || null); // ← LOAD IT
             setTeamMembers(data?.teamMembers || []);
           } else {
-            
-            setPlan('free'); 
+            setPlan('free');
+            setStripeCustomerId(null);
           }
-          setLoading(false); // Set loading false *after* plan is set
+          setLoading(false);
         });
         
-        // Return the snapshot listener to be cleaned up when auth state changes
         return () => unsubSnapshot();
-
       } else {
-        // User is logged out
-        setPlan(null); // <-- Set plan to null for logged-out user
+        setPlan(null);
         setPhone('');
+        setStripeCustomerId(null); // ← CLEAR ON LOGOUT
         setTeamMembers([]);
-        setLoading(false); // <-- FIX 3: Set loading false for logged-out user
+        setLoading(false);
       }
     });
 
-    // Return the auth listener to be cleaned up
     return () => unsubscribe();
   }, []);
 
@@ -75,13 +73,13 @@ export function AuthProvider({ children }) {
       plan, 
       setPlan, 
       phone, 
-      setPhone, 
+      setPhone,
+      stripeCustomerId,        // ← EXPORT
+      setStripeCustomerId,     // ← EXPORT
       teamMembers,
-      loading, // Export the loading state
+      loading,
       signOut: handleSignOut
     }}>
-      {/* !loading check not needed here, 
-          as consumers will check it */}
       {children}
     </AuthContext.Provider>
   );
