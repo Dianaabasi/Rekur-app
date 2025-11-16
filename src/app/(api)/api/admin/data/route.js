@@ -1,7 +1,8 @@
-// src/app/api/admin/data/route.js
+// src/app/(api)/api/admin/data/route.js
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeApp, cert, getApp } from 'firebase-admin/app';
+import Stripe from 'stripe';
 
 // ---------- Init Admin ----------
 let adminApp;
@@ -18,6 +19,7 @@ try {
 }
 const db = getFirestore(adminApp);
 const auth = getAuth(adminApp);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const ADMIN_EMAIL = 'dianaabasiekpenyong@gmail.com';
 
@@ -47,9 +49,11 @@ export async function GET(request) {
       const data = doc.data();
       return {
         id: doc.id,
-        ...data,
-        // Convert Firestore Timestamp → ISO string
-        createdAt: data.createdAt?.toDate?.().toISOString() || null,
+        email: data.email,
+        plan: data.plan || 'free',
+        stripeCustomerId: data.stripeCustomerId || null,
+        disabled: data.disabled || false,
+        createdAt: data.createdAt,
       };
     });
 
@@ -59,14 +63,28 @@ export async function GET(request) {
       const data = doc.data();
       return {
         id: doc.id,
-        ...data,
-        // Convert renewalDate → ISO string
-        renewalDate: data.renewalDate?.toDate?.().toISOString() || null,
+        userId: data.userId,
+        name: data.name,
+        price: data.price,
+        renewalDate: data.renewalDate,
+        remindDays: data.remindDays || [],
       };
     });
 
+    // ---- Payments (Stripe) ----
+    const charges = await stripe.charges.list({ limit: 100 });
+    const payments = charges.data.map((c) => ({
+      id: c.payment_intent,
+      customer: c.customer,
+      amount: c.amount, // in cents
+      currency: c.currency,
+      created: new Date(c.created * 1000),
+      refunded: c.refunded,
+      receipt_url: c.receipt_url,
+    }));
+
     return new Response(
-      JSON.stringify({ users, subs }),
+      JSON.stringify({ users, subs, payments }),
       {
         status: 200,
         headers: { 'Content-Type': 'application/json' },

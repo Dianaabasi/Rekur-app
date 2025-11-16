@@ -14,32 +14,57 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { Search, UserX, Clock, Users, Briefcase, Package } from 'lucide-react';
+import { Search, UserX, Clock, Users, Briefcase, Package, DollarSign, RefreshCw } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [users, setUsers] = useState([]);
   const [subs, setSubs] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedPayment, setSelectedPayment] = useState(null);
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [disableDialogOpen, setDisableDialogOpen] = useState(false);
+  const [refundDialogOpen, setRefundDialogOpen] = useState(false);
   const [newPlan, setNewPlan] = useState('');
   const [loading, setLoading] = useState(true);
   const [cronStatus, setCronStatus] = useState({ lastRun: null, sent: 0 });
   const { toast } = useToast();
+  
 
-  const fmt = (ts) =>
-    ts?.toDate?.()?.toLocaleDateString('en-US', {
+  const fmt = (date) => {
+    let d;
+    if (!date) return '—';
+
+    // Firestore Timestamp
+    if (date.toDate) {
+      d = date.toDate();
+    }
+    // JS Date
+    else if (date instanceof Date) {
+      d = date;
+    }
+    // ISO String
+    else if (typeof date === 'string') {
+      d = new Date(date);
+    } else {
+      return '—';
+    }
+
+    return d.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    }) ?? '—';
+    });
+  };
 
-  // Fetch data
+  const fmtCurrency = (cents) => `$${(cents / 100).toFixed(2)}`;
+
+  // Fetch all data
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -50,16 +75,14 @@ export default function AdminDashboard() {
           fetch('/api/cron/status'),
         ]);
 
-        if (!dataRes.ok || !cronRes.ok) {
-          const errData = dataRes.ok ? await cronRes.json() : await dataRes.json();
-          throw new Error(errData.error || 'Failed to load data');
-        }
+        if (!dataRes.ok || !cronRes.ok) throw new Error('Failed to load data');
 
-        const { users, subs } = await dataRes.json();
+        const { users, subs, payments } = await dataRes.json();
         const cronData = await cronRes.json();
 
         setUsers(users);
         setSubs(subs);
+        setPayments(payments);
         setCronStatus(cronData);
       } catch (err) {
         toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -79,6 +102,8 @@ export default function AdminDashboard() {
   // Stats
   const proCount = users.filter((u) => u.plan === 'pro').length;
   const businessCount = users.filter((u) => u.plan === 'business').length;
+  const totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
+  const refunded = payments.filter((p) => p.refunded).reduce((sum, p) => sum + p.amount, 0);
 
   // Run Cron
   const runCron = async () => {
@@ -143,6 +168,30 @@ export default function AdminDashboard() {
     }
   };
 
+  // Refund Payment
+  const refundPayment = async () => {
+    try {
+      const res = await fetch('/api/admin/refund-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer admin-authenticated',
+        },
+        body: JSON.stringify({ paymentId: selectedPayment.id }),
+      });
+
+      if (!res.ok) throw new Error('Refund failed');
+
+      setPayments((prev) =>
+        prev.map((p) => (p.id === selectedPayment.id ? { ...p, refunded: true } : p))
+      );
+      toast({ title: 'Success', description: 'Payment refunded' });
+      setRefundDialogOpen(false);
+    } catch (err) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+  };
+
   if (loading) return <div className="text-center py-10">Loading…</div>;
 
   return (
@@ -161,6 +210,10 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-2">
             <Package className="w-5 h-5 text-green-600" />
             <span className="font-medium">Subs: {subs.length}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-green-600" />
+            <span className="font-medium">Revenue: {fmtCurrency(totalRevenue)}</span>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -256,6 +309,70 @@ export default function AdminDashboard() {
         </CardContent>
       </Card>
 
+      {/* Payments Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Payments ({payments.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {payments.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-gray-500">
+                    No payments yet
+                  </TableCell>
+                </TableRow>
+              ) : (
+                payments.map((p) => {
+                  const user = users.find((u) => u.stripeCustomerId === p.customer);
+                  return (
+                    <TableRow key={p.id}>
+                      <TableCell
+                        className="font-medium cursor-pointer hover:text-blue-600"
+                        onClick={() => setSelectedPayment(p)}
+                      >
+                        {user?.email || p.customer}
+                      </TableCell>
+                      <TableCell>{fmtCurrency(p.amount)}</TableCell>
+                      <TableCell>{fmt(p.created)}</TableCell>
+                      <TableCell>
+                        <Badge variant={p.refunded ? 'destructive' : 'default'}>
+                          {p.refunded ? 'Refunded' : 'Paid'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedPayment(p);
+                            setRefundDialogOpen(true);
+                          }}
+                          disabled={p.refunded}
+                        >
+                          <RefreshCw className="w-4 h-4 mr-1" />
+                          Refund
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
       {/* Subscriptions Table */}
       <Card>
         <CardHeader>
@@ -307,6 +424,24 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
 
+      {/* Payment Details Dialog */}
+      <Dialog open={!!selectedPayment && !refundDialogOpen} onOpenChange={() => setSelectedPayment(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Payment Details</DialogTitle>
+          </DialogHeader>
+          {selectedPayment && (
+            <div className="space-y-3 text-sm">
+              <div><strong>ID:</strong> {selectedPayment.id}</div>
+              <div><strong>Amount:</strong> {fmtCurrency(selectedPayment.amount)}</div>
+              <div><strong>Customer:</strong> {selectedPayment.customer}</div>
+              <div><strong>Date:</strong> {fmt(selectedPayment.created)}</div>
+              <div><strong>Status:</strong> {selectedPayment.refunded ? 'Refunded' : 'Paid'}</div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Change Plan Dialog */}
       <Dialog open={planDialogOpen} onOpenChange={setPlanDialogOpen}>
         <DialogContent>
@@ -340,6 +475,22 @@ export default function AdminDashboard() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDisableDialogOpen(false)}>Cancel</Button>
             <Button variant="destructive" onClick={disableUser}>Disable User</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Refund Dialog */}
+      <Dialog open={refundDialogOpen} onOpenChange={setRefundDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Refund Payment</DialogTitle>
+          </DialogHeader>
+          <DialogDescription>
+            Refund {fmtCurrency(selectedPayment?.amount)} to {users.find(u => u.stripeCustomerId === selectedPayment?.customer)?.email || selectedPayment?.customer}?
+          </DialogDescription>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRefundDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={refundPayment}>Refund</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

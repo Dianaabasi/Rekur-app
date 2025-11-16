@@ -1,6 +1,6 @@
 # Rekur – Subscription Tracker
 
-Never miss a renewal again.
+Never forget a Subscription again.
 
 
 ## Overview
