@@ -1,72 +1,38 @@
-// import axios from 'axios';
+// src/app/(api)/api/send-sms/route.js
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app } from '@/lib/firebase';
 
-// export async function POST(request) {
-//   const { to, body } = await request.json();
+const functions = getFunctions(app);
+// Optional: connect to emulator when developing
+// connectFunctionsEmulator(functions, 'localhost', 5001);
 
-//   // Validate
-//   if (!to || !body) {
-//     return new Response(JSON.stringify({ error: 'Missing to or body' }), { status: 400 });
-//   }
-
-//   try {
-//     const response = await axios.post(
-//       'https://api.ng.termii.com/api/sms/send',
-//       {
-//         to: to.replace('+', ''), // e.g., 2348147615490
-//         from: process.env.TERMII_SENDER_ID,
-//         sms: body,
-//         type: 'plain',
-//         api_key: process.env.TERMII_API_KEY,
-//         channel: 'dnd',
-//       },
-//       {
-//         headers: { 'Content-Type': 'application/json' },
-//         timeout: 10000,
-//       }
-//     );
-
-//     console.log(`SMS sent: ${response.data.message} (ID: ${response.data.request_id})`);
-//     return new Response(JSON.stringify({ status: 'sent', data: response.data }), { status: 200 });
-//   } catch (error) {
-//     const errMsg = error.response?.data?.message || error.message;
-//     console.error('Termii SMS error:', errMsg);
-//     return new Response(JSON.stringify({ error: errMsg }), { status: 500 });
-//   }
-// }
-
-// src/app/api/send-sms/route.js (Termii Demo Mode - Working)
 export async function POST(request) {
   const { to, body } = await request.json();
 
-  // Demo mode (logs only, no approval needed)
-  const demoMode = true; // Set to false for production
-
-  if (demoMode) {
-    console.log(`🧪 DEMO SMS: To ${to}: "${body}"`);
-    return new Response(JSON.stringify({ status: 'sent (demo)', message: 'Demo mode - SMS logged' }), { status: 200 });
+  // Basic validation
+  if (!to || !body) {
+    return new Response(JSON.stringify({ error: 'Missing to or body' }), { status: 400 });
   }
 
   try {
-    const response = await fetch('https://api.ng.termii.com/api/sms/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: to.replace('+', ''), // e.g., 2348147615490
-        from: process.env.TERMII_SENDER_ID,
-        sms: body,
-        type: 'plain',
-        api_key: process.env.TERMII_API_KEY,
-        channel: 'dnd',
-      }),
+    const sendSms = httpsCallable(functions, 'ext-twilio-send-sms-sendSms');
+
+    const result = await sendSms({
+      to: to.startsWith('+') ? to : `+${to}`, // ensure + prefix
+      message: body,
     });
 
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'SMS failed');
+    console.log('Twilio SMS sent:', result.data);
 
-    console.log(`✅ SMS sent: ${data.message} (ID: ${data.request_id})`);
-    return new Response(JSON.stringify({ status: 'sent', data }), { status: 200 });
+    return new Response(
+      JSON.stringify({ status: 'sent', sid: result.data.sid }),
+      { status: 200 }
+    );
   } catch (error) {
-    console.error('Termii SMS error:', error.message);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    console.error('Twilio SMS error:', error.message, error.details);
+    return new Response(
+      JSON.stringify({ error: error.message || 'Failed to send SMS' }),
+      { status: 500 }
+    );
   }
 }

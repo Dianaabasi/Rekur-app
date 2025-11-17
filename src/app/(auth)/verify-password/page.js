@@ -1,5 +1,8 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { useState } from 'react';
 import { getAuth, confirmPasswordReset } from 'firebase/auth';
 import { app } from '@/lib/firebase';
