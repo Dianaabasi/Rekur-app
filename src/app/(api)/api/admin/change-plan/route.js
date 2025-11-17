@@ -1,3 +1,10 @@
+export const dynamic = 'force-dynamic';
+export const config = {
+  api: {
+    bodyParser: false, // or true, whatever you need
+  },
+};
+
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeApp, cert, getApp } from 'firebase-admin/app';
 
