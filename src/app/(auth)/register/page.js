@@ -1,6 +1,6 @@
+'use client';
 export const dynamic = 'force-dynamic'; // Disables prerendering
 
-'use client';
 
 import { useState, useContext } from 'react';
 import { getAuth, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, updateProfile } from 'firebase/auth';

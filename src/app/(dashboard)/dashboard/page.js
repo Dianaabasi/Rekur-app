@@ -1,5 +1,6 @@
-export const dynamic = 'force-dynamic'; // Disables prerendering
 'use client';
+
+export const dynamic = 'force-dynamic'; // Disables prerendering
 
 import Link from 'next/link';
 import { cn } from "@/lib/utils";
