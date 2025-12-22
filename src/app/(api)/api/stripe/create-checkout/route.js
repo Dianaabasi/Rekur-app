@@ -49,10 +49,10 @@ export async function POST(request) {
       mode: 'subscription',
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/dashboard?success=true`,
-      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/pricing`,
-      // success_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://iliana-unmodelled-exclusively.ngrok-free.dev'}/dashboard?success=true`,
-      // cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://iliana-unmodelled-exclusively.ngrok-free.dev'}/pricing`,
+      // success_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/dashboard?success=true`,
+      // cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/pricing`,
+      success_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://rekur-app.vercel.app'}/dashboard?success=true`,
+      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://rekur-app.vercel.app'}/pricing`,
       metadata: { firebaseUid: userId },
     });
 
