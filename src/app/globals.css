@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Your Brand Colors (HSL format) */
+    --brand-primary: 206 69% 53%; /* #3498DB */
+    --brand-dark: 210 29% 29%;     /* #34495E */
+    --brand-medium: 184 6% 53%;   /* #7F8C8D */
+    --brand-light: 210 17% 96%;   /* #ECF0F1 */
+    --brand-alert: 6 78% 57%;     /* #E74C3C */
+    
+    /* Map to shadcn/ui light theme */
+    --background: 0 0% 100%;             /* White background */
+    --foreground: var(--brand-dark);     /* Default text is Dark Gray */
+
+    --card: 0 0% 100%;                   /* White cards */
+    --card-foreground: var(--brand-dark);
+
+    --popover: 0 0% 100%;
+    --popover-foreground: var(--brand-dark);
+
+    --primary: var(--brand-primary);     /* Primary Blue */
+    --primary-foreground: 210 40% 98%; /* Light text on blue button */
+
+    --secondary: var(--brand-light);     /* Light Gray bg */
+    --secondary-foreground: var(--brand-dark); /* Dark Gray text */
+
+    --muted: var(--brand-light);
+    --muted-foreground: var(--brand-medium); /* Medium Gray text */
+
+    --accent: var(--brand-light);
+    --accent-foreground: var(--brand-dark);
+
+    --destructive: var(--brand-alert);   /* Alert Red */
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 210 17% 90%; /* A slightly darker version of brand-light */
+    --input: 210 17% 90%;
+    --ring: var(--brand-primary);
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Mapped dark mode colors */
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+
+/* --- THIS BLOCK CONTAINS THE BUILD FIX --- */
+@layer base {
+  * {
+    /* We use the direct CSS property here instead of @apply
+      to avoid a build-order race condition with Turbopack.
+    */
+    border-color: hsl(var(--border));
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
