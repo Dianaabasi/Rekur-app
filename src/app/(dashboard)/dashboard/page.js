@@ -4,10 +4,10 @@ export const dynamic = 'force-dynamic';
 
 import Link from 'next/link';
 import { cn } from "@/lib/utils";
-// 1. Added Suspense to the React imports
 import { useState, useEffect, useContext, useMemo, Suspense } from 'react';
 import { format, isToday, parseISO } from 'date-fns';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+// Added getDocs to imports
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { AuthContext } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -37,14 +37,19 @@ const PREDEFINED_CATEGORIES = [
 
 const DEFAULT_COLORS = ['#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399', '#22d3ee', '#818cf8', '#c084fc', '#f472b6'];
 
-// 2. Renamed the original component to DashboardContent
 function DashboardContent() {
   const { user, plan = 'free' } = useContext(AuthContext);
   const { toast } = useToast();
   const isPro = plan === 'pro';
   const isBusiness = plan === 'business';
+  
   const [subscriptions, setSubscriptions] = useState([]);
   const [userCategories, setUserCategories] = useState([]);
+  
+  // State to track if user is viewing a shared workspace
+  const [isSharedView, setIsSharedView] = useState(false);
+  const [workspaceOwnerId, setWorkspaceOwnerId] = useState(null);
+
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -71,7 +76,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const success = searchParams.get('success');
 
-  // Load subscriptions
+  // Load subscriptions (Auto-detects if user is a team member)
   useEffect(() => {
     if (success) {
       toast({
@@ -81,43 +86,78 @@ function DashboardContent() {
       window.history.replaceState({}, '', '/dashboard');
     }
 
-    if (!user?.uid) return;
+    if (!user?.uid || !user?.email) return;
 
-    const q = query(collection(db, 'subscriptions'), where('userId', '==', user.uid));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const subs = snap.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            ...data,
-            emailReminder: data.emailReminder ?? true,
-            smsReminder: data.smsReminder ?? false,
-            whatsappReminder: data.whatsappReminder ?? false,
-            remindDays: Array.isArray(data.remindDays) ? data.remindDays : [],
-            category: data.category || 'other'
-          };
-        });
-        setSubscriptions(subs);
-      },
-      (err) => {
-        console.error("Subscriptions load error:", err);
-        toast({
-          title: "Error",
-          description: "Failed to load subscriptions. Check your connection.",
-          variant: "destructive"
-        });
+    let unsub = () => {};
+
+    const setupDashboard = async () => {
+      try {
+        let targetUid = user.uid;
+        let isShared = false;
+
+        // 1. Check if the current user is an accepted team member of another workspace
+        const teamQuery = query(
+          collection(db, 'teamInvites'), 
+          where('email', '==', user.email)
+        );
+        const teamSnap = await getDocs(teamQuery);
+
+        if (!teamSnap.empty) {
+          // Assuming user belongs to one workspace for now. 
+          // If multiple, you'd pick the first or show a selector.
+          const inviteData = teamSnap.docs[0].data();
+          if (inviteData.workspaceOwner) {
+            targetUid = inviteData.workspaceOwner;
+            isShared = true;
+          }
+        }
+
+        setIsSharedView(isShared);
+        setWorkspaceOwnerId(targetUid);
+
+        // 2. Fetch subscriptions for the target UID (either self or owner)
+        const q = query(collection(db, 'subscriptions'), where('userId', '==', targetUid));
+        unsub = onSnapshot(
+          q,
+          (snap) => {
+            const subs = snap.docs.map(doc => {
+              const data = doc.data();
+              return {
+                id: doc.id,
+                ...data,
+                emailReminder: data.emailReminder ?? true,
+                smsReminder: data.smsReminder ?? false,
+                whatsappReminder: data.whatsappReminder ?? false,
+                remindDays: Array.isArray(data.remindDays) ? data.remindDays : [],
+                category: data.category || 'other'
+              };
+            });
+            setSubscriptions(subs);
+          },
+          (err) => {
+            console.error("Subscriptions load error:", err);
+            toast({
+              title: "Error",
+              description: "Failed to load subscriptions.",
+              variant: "destructive"
+            });
+          }
+        );
+      } catch (error) {
+        console.error("Error setting up dashboard:", error);
       }
-    );
-    return unsub;
+    };
+
+    setupDashboard();
+    return () => unsub();
   }, [user, toast, success]);
 
   // Load custom categories (Business only)
   useEffect(() => {
-    if (!isBusiness || !user?.uid) return;
+    // Only load if business plan OR if viewing a shared workspace (which implies owner is business)
+    if ((!isBusiness && !isSharedView) || !workspaceOwnerId) return;
 
-    const q = query(collection(db, 'userCategories'), where('userId', '==', user.uid));
+    const q = query(collection(db, 'userCategories'), where('userId', '==', workspaceOwnerId));
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -129,19 +169,15 @@ function DashboardContent() {
       },
       (err) => {
         console.error("User categories load error:", err);
-        toast({
-          title: "Error",
-          description: "Failed to load custom categories.",
-          variant: "destructive"
-        });
       }
     );
     return unsub;
-  }, [isBusiness, user, toast]);
+  }, [isBusiness, user, isSharedView, workspaceOwnerId]);
 
-  // Load team members (Business only)
+  // Load team members (Only for Owner)
   useEffect(() => {
-    if (!isBusiness || !user?.uid) return;
+    // Team members shouldn't see the team management list of the owner
+    if (isSharedView || !isBusiness || !user?.uid) return;
 
     const q = query(collection(db, 'teamInvites'), where('workspaceOwner', '==', user.uid));
     const unsub = onSnapshot(
@@ -158,7 +194,7 @@ function DashboardContent() {
       }
     );
     return unsub;
-  }, [isBusiness, user]);
+  }, [isBusiness, user, isSharedView]);
 
   const allCategories = useMemo(() => {
     return [...PREDEFINED_CATEGORIES, ...userCategories];
@@ -171,7 +207,7 @@ function DashboardContent() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!user?.uid) return;
+    if (!user?.uid || isSharedView) return;
 
     const payload = {
       name: form.name,
@@ -215,10 +251,7 @@ function DashboardContent() {
   };
 
   const handleAddCategory = async () => {
-    if (!newCatName.trim()) {
-      toast({ title: "Error", description: "Category name is required.", variant: "destructive" });
-      return;
-    }
+    if (!newCatName.trim() || isSharedView) return;
 
     const value = newCatName.toLowerCase().replace(/\s+/g, '-');
     if (allCategories.some(c => c.value === value)) {
@@ -254,6 +287,7 @@ function DashboardContent() {
   };
 
   const handleDeleteCategory = async (catId) => {
+    if (isSharedView) return;
     const cat = userCategories.find(c => c.id === catId);
     if (subscriptions.some(s => s.category === cat.value)) {
       toast({ title: "Cannot Delete", description: "This category is in use.", variant: "destructive" });
@@ -269,10 +303,23 @@ function DashboardContent() {
   };
 
   const handleEditCategory = (cat) => {
+    if (isSharedView) return;
     setEditingCat(cat);
     setNewCatName(cat.label);
     setNewCatColor(cat.color);
     setCategoryModal(true);
+  };
+
+  // --- NEW: Remove Team Member ---
+  const handleRemoveMember = async (memberId) => {
+    if (isSharedView) return; // Safety check
+    try {
+      await deleteDoc(doc(db, 'teamInvites', memberId));
+      toast({ title: "Member Removed", description: "Team member access revoked." });
+    } catch (error) {
+      console.error("Remove member error:", error);
+      toast({ title: "Error", description: "Failed to remove member.", variant: "destructive" });
+    }
   };
 
   const handleAddCustomMember = async () => {
@@ -324,6 +371,7 @@ function DashboardContent() {
   };
 
   const handleDelete = async (id) => {
+    if (isSharedView) return;
     try {
       await deleteDoc(doc(db, 'subscriptions', id));
       toast({ title: "Deleted", description: "Subscription removed." });
@@ -333,6 +381,7 @@ function DashboardContent() {
   };
 
   const handleEdit = (sub) => {
+    if (isSharedView) return;
     setEditing(sub);
     setForm({
       name: sub.name || '',
@@ -357,7 +406,7 @@ function DashboardContent() {
     return sorted;
   }, [subscriptions, sortBy]);
 
-  const displaySubs = isPro || isBusiness ? sortedSubscriptions : sortedSubscriptions.slice(0, 5);
+  const displaySubs = (isPro || isBusiness || isSharedView) ? sortedSubscriptions : sortedSubscriptions.slice(0, 5);
 
   const totalMonthlyRaw = useMemo(() => {
     return subscriptions.reduce((sum, sub) => sum + sub.price, 0);
@@ -420,14 +469,18 @@ function DashboardContent() {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl">
-      {/* ... (Keep the rest of your original JSX return here) ... */}
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-1">
-          {isBusiness ? 'Business Workspace' : isPro ? 'Personal Pro Dashboard' : 'Personal Plan Dashboard'}
+          {isSharedView 
+            ? 'Shared Workspace (Read-Only)' 
+            : isBusiness ? 'Business Workspace' : isPro ? 'Personal Pro Dashboard' : 'Personal Plan Dashboard'
+          }
         </h1>
         <p className="text-sm text-gray-600">
-          {isBusiness
+          {isSharedView
+            ? `Viewing subscriptions shared with you.`
+            : isBusiness
             ? 'Team collaboration • Analytics • Categories'
             : isPro
             ? 'Unlimited subscriptions • SMS & WhatsApp alerts • Full control'
@@ -437,7 +490,7 @@ function DashboardContent() {
       </div>
 
       {/* Total Monthly Cost */}
-      {(isPro || isBusiness) && (
+      {(isPro || isBusiness || isSharedView) && (
         <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-5 sm:p-6 rounded-xl">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
@@ -453,7 +506,7 @@ function DashboardContent() {
       )}
 
       {/* Business: Analytics */}
-      {isBusiness && categoryData.length > 0 && (
+      {(isBusiness || isSharedView) && categoryData.length > 0 && (
         <Card className="p-5 sm:p-6">
           <h2 className="text-lg font-semibold mb-4">Spend by Category</h2>
           <div className="h-56 sm:h-64">
@@ -483,15 +536,15 @@ function DashboardContent() {
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <h1 className="text-xl font-bold">
-          Your Subscriptions ({displaySubs.length}{!(isPro || isBusiness) ? '/5' : ''})
+          {isSharedView ? 'Shared Subscriptions' : 'Your Subscriptions'} ({displaySubs.length}{!(isPro || isBusiness || isSharedView) ? '/5' : ''})
         </h1>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          {(isPro || isBusiness) && (
+          {(isPro || isBusiness || isSharedView) && (
             <Button size="sm" variant="outline" onClick={exportToCSV} className="flex-1 sm:flex-initial">
               <Download className="h-4 w-4 mr-1" /> Export
             </Button>
           )}
-          {isBusiness && (
+          {isBusiness && !isSharedView && (
             <>
               <Button size="sm" variant="outline" onClick={() => setInviteOpen(true)} className="flex-1 sm:flex-initial">
                 <Users className="h-4 w-4 mr-1" /> Invite
@@ -501,128 +554,132 @@ function DashboardContent() {
               </Button>
             </>
           )}
-          <Dialog open={open} onOpenChange={(isOpen) => {
-            setOpen(isOpen);
-            if (!isOpen) {
-              setEditing(null);
-              setForm({
-                name: '', price: '', renewalDate: '',
-                remindDays: [],
-                emailReminder: true,
-                smsReminder: false,
-                whatsappReminder: false,
-                category: 'other'
-              });
-            }
-          }}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="w-full sm:w-auto">
-                <Plus className="h-4 w-4 mr-1" /> Add
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="w-[95vw] max-w-md mx-auto rounded-xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{editing ? 'Edit' : 'Add'} Subscription</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Name</Label>
-                  <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Netflix" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Price</Label>
-                  <Input type="number" step="0.01" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} placeholder="15.99" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Next Renewal</Label>
-                  <Input type="date" value={form.renewalDate} onChange={e => setForm({ ...form, renewalDate: e.target.value })} required />
-                </div>
-
-                {isBusiness && (
-                  <div className="space-y-2">
-                    <Label>Category</Label>
-                    <Select value={form.category} onValueChange={v => setForm({ ...form, category: v })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {allCategories.map(cat => (
-                          <SelectItem key={cat.value} value={cat.value}>
-                            <div className="flex items-center gap-2">
-                              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color }} />
-                              {cat.label}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>Email Reminder</Label>
-                    <Switch checked={form.emailReminder} onCheckedChange={v => setForm({ ...form, emailReminder: v })} />
-                  </div>
-                  {(isPro || isBusiness) && (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <Label>SMS Reminder <Smartphone className="inline h-3 w-3 ml-1" /></Label>
-                        <Switch checked={form.smsReminder} onCheckedChange={v => setForm({ ...form, smsReminder: v })} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <Label>WhatsApp Reminder <MessageCircle className="inline h-3 w-3 ml-1" /></Label>
-                        <Switch checked={form.whatsappReminder} onCheckedChange={v => setForm({ ...form, whatsappReminder: v })} />
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {(isPro || isBusiness) && (
-                  <div className="space-y-2">
-                    <Label>Remind Days Before</Label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {[15, 7, 3, 1].map(day => (
-                        <label key={day} className="flex flex-col items-center space-y-1 cursor-pointer text-xs">
-                          <Checkbox
-                            checked={form.remindDays.includes(day)}
-                            onCheckedChange={(checked) => {
-                              setForm(prev => ({
-                                ...prev,
-                                remindDays: checked ? [...prev.remindDays, day] : prev.remindDays.filter(d => d !== day),
-                              }));
-                            }}
-                          />
-                          <span>{day}d</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {!(isPro || isBusiness) && (
-                  <div className="space-y-2">
-                    <Label>Remind me</Label>
-                    <Select value={form.remindDays[0]?.toString() || ''} onValueChange={v => setForm({ ...form, remindDays: v ? [Number(v)] : [] })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select days" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1">1 day</SelectItem>
-                        <SelectItem value="3">3 days</SelectItem>
-                        <SelectItem value="7">7 days</SelectItem>
-                        <SelectItem value="14">14 days</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                <Button type="submit" className="w-full">
-                  {editing ? 'Update' : 'Add'}
+          
+          {/* Add button hidden in Shared View */}
+          {!isSharedView && (
+            <Dialog open={open} onOpenChange={(isOpen) => {
+              setOpen(isOpen);
+              if (!isOpen) {
+                setEditing(null);
+                setForm({
+                  name: '', price: '', renewalDate: '',
+                  remindDays: [],
+                  emailReminder: true,
+                  smsReminder: false,
+                  whatsappReminder: false,
+                  category: 'other'
+                });
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="w-full sm:w-auto">
+                  <Plus className="h-4 w-4 mr-1" /> Add
                 </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent className="w-[95vw] max-w-md mx-auto rounded-xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>{editing ? 'Edit' : 'Add'} Subscription</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Name</Label>
+                    <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Netflix" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Price</Label>
+                    <Input type="number" step="0.01" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} placeholder="15.99" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Next Renewal</Label>
+                    <Input type="date" value={form.renewalDate} onChange={e => setForm({ ...form, renewalDate: e.target.value })} required />
+                  </div>
+
+                  {(isBusiness || isSharedView) && (
+                    <div className="space-y-2">
+                      <Label>Category</Label>
+                      <Select value={form.category} onValueChange={v => setForm({ ...form, category: v })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {allCategories.map(cat => (
+                            <SelectItem key={cat.value} value={cat.value}>
+                              <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color }} />
+                                {cat.label}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Email Reminder</Label>
+                      <Switch checked={form.emailReminder} onCheckedChange={v => setForm({ ...form, emailReminder: v })} />
+                    </div>
+                    {(isPro || isBusiness || isSharedView) && (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <Label>SMS Reminder <Smartphone className="inline h-3 w-3 ml-1" /></Label>
+                          <Switch checked={form.smsReminder} onCheckedChange={v => setForm({ ...form, smsReminder: v })} />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label>WhatsApp Reminder <MessageCircle className="inline h-3 w-3 ml-1" /></Label>
+                          <Switch checked={form.whatsappReminder} onCheckedChange={v => setForm({ ...form, whatsappReminder: v })} />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {(isPro || isBusiness || isSharedView) && (
+                    <div className="space-y-2">
+                      <Label>Remind Days Before</Label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {[15, 7, 3, 1].map(day => (
+                          <label key={day} className="flex flex-col items-center space-y-1 cursor-pointer text-xs">
+                            <Checkbox
+                              checked={form.remindDays.includes(day)}
+                              onCheckedChange={(checked) => {
+                                setForm(prev => ({
+                                  ...prev,
+                                  remindDays: checked ? [...prev.remindDays, day] : prev.remindDays.filter(d => d !== day),
+                                }));
+                              }}
+                            />
+                            <span>{day}d</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {!(isPro || isBusiness || isSharedView) && (
+                    <div className="space-y-2">
+                      <Label>Remind me</Label>
+                      <Select value={form.remindDays[0]?.toString() || ''} onValueChange={v => setForm({ ...form, remindDays: v ? [Number(v)] : [] })}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select days" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1">1 day</SelectItem>
+                          <SelectItem value="3">3 days</SelectItem>
+                          <SelectItem value="7">7 days</SelectItem>
+                          <SelectItem value="14">14 days</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  <Button type="submit" className="w-full">
+                    {editing ? 'Update' : 'Add'}
+                  </Button>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </div>
 
@@ -630,7 +687,7 @@ function DashboardContent() {
       <Card className="p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
           <h2 className="text-lg font-semibold flex items-center">
-            <Calendar className="h-5 w-5 mr-2" /> All Subscriptions
+            <Calendar className="h-5 w-5 mr-2" /> {isSharedView ? 'Shared Subscriptions' : 'All Subscriptions'}
           </h2>
           <div className="flex gap-1 w-full sm:w-auto overflow-x-auto">
             <Button size="sm" variant={sortBy === 'all' ? 'default' : 'ghost'} onClick={() => setSortBy('all')}>
@@ -646,7 +703,7 @@ function DashboardContent() {
         </div>
 
         {displaySubs.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No subscriptions yet. Add one!</p>
+          <p className="text-center text-muted-foreground py-8">No subscriptions yet.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {displaySubs.map(sub => {
@@ -675,15 +732,15 @@ function DashboardContent() {
                   <p className="text-xs text-muted-foreground mt-1">
                     {format(renewalDate, 'MMM d, yyyy')}
                   </p>
-                  {isBusiness && sub.category && (
+                  {(isBusiness || isSharedView) && sub.category && (
                     <Badge variant="secondary" className="mt-2 text-xs" style={{ backgroundColor: getCategoryColor(sub.category) + '20', color: getCategoryColor(sub.category) }}>
                       {allCategories.find(c => c.value === sub.category)?.label || 'Other'}
                     </Badge>
                   )}
                   <div className="flex flex-wrap gap-1 justify-center mt-2">
                     {sub.emailReminder && <Badge variant="secondary" className="text-xs">Email</Badge>}
-                    {(isPro || isBusiness) && sub.smsReminder && <Badge variant="outline" className="text-xs">SMS</Badge>}
-                    {(isPro || isBusiness) && sub.whatsappReminder && <Badge variant="outline" className="text-xs">WhatsApp</Badge>}
+                    {(isPro || isBusiness || isSharedView) && sub.smsReminder && <Badge variant="outline" className="text-xs">SMS</Badge>}
+                    {(isPro || isBusiness || isSharedView) && sub.whatsappReminder && <Badge variant="outline" className="text-xs">WhatsApp</Badge>}
                   </div>
                 </div>
               );
@@ -694,9 +751,9 @@ function DashboardContent() {
 
       {/* Table View */}
       <Card className="p-4 sm:p-6 overflow-x-auto">
-        <h2 className="text-lg font-semibold mb-4 sticky left-0 bg-background">All Subscriptions</h2>
+        <h2 className="text-lg font-semibold mb-4 sticky left-0 bg-background">List View</h2>
         {displaySubs.length === 0 ? (
-          <p className="text-center text-muted-foreground py-8">No subscriptions yet. Add one!</p>
+          <p className="text-center text-muted-foreground py-8">No subscriptions yet.</p>
         ) : (
           <Table>
             <TableHeader>
@@ -705,8 +762,8 @@ function DashboardContent() {
                 <TableHead>Price</TableHead>
                 <TableHead>Next Renewal</TableHead>
                 <TableHead>Reminder</TableHead>
-                {isBusiness && <TableHead>Category</TableHead>}
-                <TableHead className="text-right">Actions</TableHead>
+                {(isBusiness || isSharedView) && <TableHead>Category</TableHead>}
+                {!isSharedView && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -727,46 +784,48 @@ function DashboardContent() {
                         <span className="text-muted-foreground">None</span>
                       )}
                       {sub.emailReminder && <Badge variant="outline" className="text-xs">Email</Badge>}
-                      {(isPro || isBusiness) && sub.smsReminder && <Badge variant="outline" className="text-xs">SMS</Badge>}
-                      {(isPro || isBusiness) && sub.whatsappReminder && <Badge variant="outline" className="text-xs">WhatsApp</Badge>}
+                      {(isPro || isBusiness || isSharedView) && sub.smsReminder && <Badge variant="outline" className="text-xs">SMS</Badge>}
+                      {(isPro || isBusiness || isSharedView) && sub.whatsappReminder && <Badge variant="outline" className="text-xs">WhatsApp</Badge>}
                     </div>
                   </TableCell>
-                  {isBusiness && (
+                  {(isBusiness || isSharedView) && (
                     <TableCell>
                       <Badge variant="secondary" style={{ backgroundColor: getCategoryColor(sub.category) + '20', color: getCategoryColor(sub.category) }}>
                         {allCategories.find(c => c.value === sub.category)?.label || 'Other'}
                       </Badge>
                     </TableCell>
                   )}
-                  <TableCell className="text-right space-x-1">
-                    <Button size="icon" variant="ghost" onClick={() => handleEdit(sub)}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="icon" variant="ghost">
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="w-[95vw] max-w-sm mx-auto rounded-xl">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Remove <strong>{sub.name}</strong>?
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-                          <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => handleDelete(sub.id)}
-                            className="w-full sm:w-auto bg-destructive text-destructive-foreground"
-                          >
-                            Delete
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </TableCell>
+                  {!isSharedView && (
+                    <TableCell className="text-right space-x-1">
+                      <Button size="icon" variant="ghost" onClick={() => handleEdit(sub)}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="icon" variant="ghost">
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="w-[95vw] max-w-sm mx-auto rounded-xl">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Remove <strong>{sub.name}</strong>?
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                            <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDelete(sub.id)}
+                              className="w-full sm:w-auto bg-destructive text-destructive-foreground"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -774,8 +833,8 @@ function DashboardContent() {
         )}
       </Card>
 
-      {/* Business: Team Members */}
-      {isBusiness && (
+      {/* Business: Team Members (Hidden for invited members) */}
+      {isBusiness && !isSharedView && (
         <Card className="p-5 sm:p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
             <h2 className="text-lg font-semibold">Team Members ({teamMembers.length}/3)</h2>
@@ -813,9 +872,36 @@ function DashboardContent() {
                       </p>
                     </div>
                   </div>
-                  <Badge variant={member.status === 'pending' ? 'secondary' : 'default'}>
-                    {member.status === 'added' ? 'active' : member.status}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={member.status === 'pending' ? 'secondary' : 'default'}>
+                      {member.status === 'added' ? 'active' : member.status}
+                    </Badge>
+                    {/* Remove Member Button with Dialog */}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="icon" variant="ghost">
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="w-[95vw] max-w-sm mx-auto rounded-xl">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Remove Member?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Revoke access for <strong>{member.email}</strong>?
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                          <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => handleRemoveMember(member.id)}
+                            className="w-full sm:w-auto bg-destructive text-destructive-foreground"
+                          >
+                            Remove
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 </div>
               ))}
             </div>
@@ -955,12 +1041,12 @@ function DashboardContent() {
       {/* CTA */}
       <Card className={cn(
         "p-5 sm:p-6 mt-8 text-white rounded-xl text-center sm:text-left",
-        !(isPro || isBusiness) ? "bg-gradient-to-r from-blue-500 to-blue-600" :
+        !(isPro || isBusiness || isSharedView) ? "bg-gradient-to-r from-blue-500 to-blue-600" :
         isPro ? "bg-gradient-to-r from-purple-500 to-purple-600" :
         "bg-gradient-to-r from-emerald-500 to-emerald-600"
       )}>
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-          {!(isPro || isBusiness) ? (
+          {!(isPro || isBusiness || isSharedView) ? (
             <>
               <div>
                 <h3 className="text-xl font-bold">Unlock Pro Features</h3>
@@ -972,7 +1058,7 @@ function DashboardContent() {
                 <Link href="/pricing">View Pro</Link>
               </Button>
             </>
-          ) : !isBusiness ? (
+          ) : !isBusiness && !isSharedView ? (
             <>
               <div>
                 <h3 className="text-xl font-bold">Ready for Teams?</h3>
@@ -986,7 +1072,9 @@ function DashboardContent() {
             </>
           ) : (
             <div className="w-full">
-              <h3 className="text-xl font-bold">You`re on Business Plan</h3>
+              <h3 className="text-xl font-bold">
+                {isSharedView ? 'Accessing Shared Workspace' : 'You`re on Business Plan'}
+              </h3>
               <p className="text-sm opacity-90 mt-1">
                 Full team collaboration and analytics.
               </p>
