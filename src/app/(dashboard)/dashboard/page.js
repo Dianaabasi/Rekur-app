@@ -1,10 +1,11 @@
 'use client';
 
-export const dynamic = 'force-dynamic'; // Disables prerendering
+export const dynamic = 'force-dynamic';
 
 import Link from 'next/link';
 import { cn } from "@/lib/utils";
-import { useState, useEffect, useContext, useMemo } from 'react';
+// 1. Added Suspense to the React imports
+import { useState, useEffect, useContext, useMemo, Suspense } from 'react';
 import { format, isToday, parseISO } from 'date-fns';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -36,7 +37,8 @@ const PREDEFINED_CATEGORIES = [
 
 const DEFAULT_COLORS = ['#f87171', '#fb923c', '#fbbf24', '#a3e635', '#34d399', '#22d3ee', '#818cf8', '#c084fc', '#f472b6'];
 
-export default function Dashboard() {
+// 2. Renamed the original component to DashboardContent
+function DashboardContent() {
   const { user, plan = 'free' } = useContext(AuthContext);
   const { toast } = useToast();
   const isPro = plan === 'pro';
@@ -71,13 +73,11 @@ export default function Dashboard() {
 
   // Load subscriptions
   useEffect(() => {
-
     if (success) {
       toast({
         title: 'Payment Successful!',
         description: 'Your plan has been upgraded. Enjoy your new features!',
       });
-      // Clean URL without page reload
       window.history.replaceState({}, '', '/dashboard');
     }
 
@@ -111,7 +111,7 @@ export default function Dashboard() {
       }
     );
     return unsub;
-  }, [user, toast]);
+  }, [user, toast, success]);
 
   // Load custom categories (Business only)
   useEffect(() => {
@@ -160,7 +160,6 @@ export default function Dashboard() {
     return unsub;
   }, [isBusiness, user]);
 
-  // Combine categories
   const allCategories = useMemo(() => {
     return [...PREDEFINED_CATEGORIES, ...userCategories];
   }, [userCategories]);
@@ -276,7 +275,6 @@ export default function Dashboard() {
     setCategoryModal(true);
   };
 
-  // Add Team Member
   const handleAddCustomMember = async () => {
     if (teamMembers.length >= 3) {
       toast({ title: "Limit Reached", description: "Maximum 3 team members allowed.", variant: "destructive" });
@@ -422,7 +420,7 @@ export default function Dashboard() {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl">
-
+      {/* ... (Keep the rest of your original JSX return here) ... */}
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-1">
@@ -483,7 +481,6 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Title + Buttons */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <h1 className="text-xl font-bold">
           Your Subscriptions ({displaySubs.length}{!(isPro || isBusiness) ? '/5' : ''})
@@ -998,5 +995,14 @@ export default function Dashboard() {
         </div>
       </Card>
     </div>
+  );
+}
+
+// 3. The main export now wraps everything in Suspense
+export default function Dashboard() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><p>Loading Dashboard...</p></div>}>
+      <DashboardContent />
+    </Suspense>
   );
 }
