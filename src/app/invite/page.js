@@ -11,6 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { format, isToday } from 'date-fns';
 import { useToast } from "@/components/ui/use-toast";
+// 1. Import the Header component
+import Header from '@/components/Header';
 
 function InvitePageContent() {
   const searchParams = useSearchParams();
@@ -22,10 +24,8 @@ function InvitePageContent() {
   const [status, setStatus] = useState('checking'); // checking, joining, viewing, error
   const [ownerSubscriptions, setOwnerSubscriptions] = useState([]);
 
-  // 1. Handle joining logic
+  // Handle joining logic
   useEffect(() => {
-    // If auth is loading or there's no ownerId, we don't need to run this effect
-    // (The 'no ownerId' case is now handled by the render logic below)
     if (authLoading || !ownerId) return;
 
     if (!user) {
@@ -69,7 +69,7 @@ function InvitePageContent() {
     checkAndJoinTeam();
   }, [user, authLoading, ownerId, router, toast]);
 
-  // 2. Load Owner's Data (View Only)
+  // Load Owner's Data (View Only)
   useEffect(() => {
     if (status !== 'viewing' || !ownerId) return;
 
@@ -84,76 +84,99 @@ function InvitePageContent() {
 
   // --- RENDER LOGIC ---
 
-  // 1. Immediate Error Check: If ownerId is missing, show error immediately.
-  // This avoids calling setStatus('error') inside the useEffect.
   if (!ownerId || status === 'error') {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Card className="p-6 text-center">
-          <h2 className="text-xl font-bold text-destructive mb-2">Invalid Invitation</h2>
-          <p>The invite link is broken or expired.</p>
-          <Button onClick={() => router.push('/')} className="mt-4">Go Home</Button>
-        </Card>
+      <div className="min-h-screen bg-background flex flex-col">
+        {/* 2. Added Header */}
+        <Header /> 
+        <div className="flex-1 flex items-center justify-center p-4">
+          <Card className="p-6 text-center max-w-md w-full">
+            <h2 className="text-xl font-bold text-destructive mb-2">Invalid Invitation</h2>
+            <p className="text-muted-foreground">The invite link is broken or expired.</p>
+            <Button onClick={() => router.push('/')} className="mt-4 w-full">Go Home</Button>
+          </Card>
+        </div>
       </div>
     );
   }
 
-  // 2. Loading States
   if (authLoading || status === 'checking' || status === 'joining') {
-    return <div className="flex items-center justify-center min-h-screen">Loading Workspace...</div>;
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Header />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="animate-pulse text-muted-foreground">Loading Workspace...</div>
+        </div>
+      </div>
+    );
   }
 
-  // 3. Success State
   return (
-    <div className="container mx-auto p-4 sm:p-8 max-w-6xl">
-      <div className="mb-6 flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">Shared Workspace</h1>
-          <p className="text-muted-foreground">Viewing read-only access</p>
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* 3. Added Header to main view */}
+      <Header />
+      
+      <main className="flex-1 container mx-auto p-4 sm:p-8 max-w-6xl">
+        <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">Shared Workspace</h1>
+            <p className="text-muted-foreground">You are viewing this dashboard as a team member.</p>
+          </div>
+          <Button variant="outline" onClick={() => router.push('/dashboard')}>
+            Back to My Dashboard
+          </Button>
         </div>
-        <Button variant="outline" onClick={() => router.push('/dashboard')}>
-          Back to My Dashboard
-        </Button>
-      </div>
 
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-4">Subscriptions ({ownerSubscriptions.length})</h2>
-        {ownerSubscriptions.length === 0 ? (
-          <p className="text-muted-foreground text-center py-8">This workspace has no subscriptions yet.</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Price</TableHead>
-                <TableHead>Renewal</TableHead>
-                <TableHead>Category</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ownerSubscriptions.map((sub) => (
-                <TableRow key={sub.id}>
-                  <TableCell className="font-medium">{sub.name}</TableCell>
-                  <TableCell>${sub.price}</TableCell>
-                  <TableCell>
-                    <Badge variant={isToday(new Date(sub.renewalDate)) ? 'default' : 'secondary'}>
-                      {format(new Date(sub.renewalDate), 'MMM d, yyyy')}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="capitalize">{sub.category || 'Other'}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Card>
+        <Card className="p-0 sm:p-6 overflow-hidden">
+          <div className="p-4 sm:p-0 border-b sm:border-0 mb-4">
+            <h2 className="text-lg font-semibold">Subscriptions ({ownerSubscriptions.length})</h2>
+          </div>
+          
+          {ownerSubscriptions.length === 0 ? (
+            <p className="text-muted-foreground text-center py-12 bg-muted/20 rounded-lg m-4">
+              This workspace has no subscriptions yet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Price</TableHead>
+                    <TableHead>Renewal</TableHead>
+                    <TableHead>Category</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {ownerSubscriptions.map((sub) => (
+                    <TableRow key={sub.id}>
+                      <TableCell className="font-medium">{sub.name}</TableCell>
+                      <TableCell>${sub.price}</TableCell>
+                      <TableCell>
+                        <Badge variant={isToday(new Date(sub.renewalDate)) ? 'default' : 'secondary'}>
+                          {format(new Date(sub.renewalDate), 'MMM d, yyyy')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="capitalize">
+                        <Badge variant="outline" className="font-normal">
+                          {sub.category || 'Other'}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </Card>
+      </main>
     </div>
   );
 }
 
 export default function InvitePage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
       <InvitePageContent />
     </Suspense>
   );
