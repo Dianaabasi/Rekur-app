@@ -7,8 +7,7 @@ import { cn } from "@/lib/utils";
 // 1. Added Suspense to the React imports
 import { useState, useEffect, useContext, useMemo, Suspense } from 'react';
 import { format, isToday, parseISO } from 'date-fns';
-// Added getDocs to imports
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { AuthContext } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -72,7 +71,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const success = searchParams.get('success');
 
-  // UPDATED: Load subscriptions (including workspaces the user is a team member of)
+  // Load subscriptions
   useEffect(() => {
     if (success) {
       toast({
@@ -82,58 +81,36 @@ function DashboardContent() {
       window.history.replaceState({}, '', '/dashboard');
     }
 
-    if (!user?.uid || !user?.email) return;
+    if (!user?.uid) return;
 
-    let unsub = () => {};
-
-    const setupSubscriptions = async () => {
-      try {
-        // 1. Identify which workspaces this user can see (own + invited)
-        const teamQuery = query(collection(db, 'teamInvites'), where('email', '==', user.email));
-        const teamSnap = await getDocs(teamQuery);
-        
-        const viewableUserIds = [user.uid];
-        teamSnap.forEach(inviteDoc => {
-          const data = inviteDoc.data();
-          if (data.workspaceOwner) viewableUserIds.push(data.workspaceOwner);
+    const q = query(collection(db, 'subscriptions'), where('userId', '==', user.uid));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const subs = snap.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            emailReminder: data.emailReminder ?? true,
+            smsReminder: data.smsReminder ?? false,
+            whatsappReminder: data.whatsappReminder ?? false,
+            remindDays: Array.isArray(data.remindDays) ? data.remindDays : [],
+            category: data.category || 'other'
+          };
         });
-
-        // 2. Fetch subscriptions for all viewable workspaces
-        const q = query(collection(db, 'subscriptions'), where('userId', 'in', viewableUserIds));
-        
-        unsub = onSnapshot(
-          q,
-          (snap) => {
-            const subs = snap.docs.map(doc => {
-              const data = doc.data();
-              return {
-                id: doc.id,
-                ...data,
-                emailReminder: data.emailReminder ?? true,
-                smsReminder: data.smsReminder ?? false,
-                whatsappReminder: data.whatsappReminder ?? false,
-                remindDays: Array.isArray(data.remindDays) ? data.remindDays : [],
-                category: data.category || 'other'
-              };
-            });
-            setSubscriptions(subs);
-          },
-          (err) => {
-            console.error("Subscriptions load error:", err);
-            toast({
-              title: "Error",
-              description: "Failed to load subscriptions. Check your connection.",
-              variant: "destructive"
-            });
-          }
-        );
-      } catch (error) {
-        console.error("Failed to load viewable workspaces:", error);
+        setSubscriptions(subs);
+      },
+      (err) => {
+        console.error("Subscriptions load error:", err);
+        toast({
+          title: "Error",
+          description: "Failed to load subscriptions. Check your connection.",
+          variant: "destructive"
+        });
       }
-    };
-
-    setupSubscriptions();
-    return () => unsub();
+    );
+    return unsub;
   }, [user, toast, success]);
 
   // Load custom categories (Business only)
@@ -298,17 +275,6 @@ function DashboardContent() {
     setCategoryModal(true);
   };
 
-  // NEW: Function to remove a team member
-  const handleRemoveMember = async (memberId) => {
-    try {
-      await deleteDoc(doc(db, 'teamInvites', memberId));
-      toast({ title: "Member Removed", description: "Team member access has been revoked." });
-    } catch (error) {
-      console.error("Remove member error:", error);
-      toast({ title: "Error", description: "Failed to remove member.", variant: "destructive" });
-    }
-  };
-
   const handleAddCustomMember = async () => {
     if (teamMembers.length >= 3) {
       toast({ title: "Limit Reached", description: "Maximum 3 team members allowed.", variant: "destructive" });
@@ -454,6 +420,7 @@ function DashboardContent() {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl">
+      {/* ... (Keep the rest of your original JSX return here) ... */}
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-1">
@@ -846,14 +813,9 @@ function DashboardContent() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={member.status === 'pending' ? 'secondary' : 'default'}>
-                      {member.status === 'added' ? 'active' : member.status}
-                    </Badge>
-                    <Button size="icon" variant="ghost" onClick={() => handleRemoveMember(member.id)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
+                  <Badge variant={member.status === 'pending' ? 'secondary' : 'default'}>
+                    {member.status === 'added' ? 'active' : member.status}
+                  </Badge>
                 </div>
               ))}
             </div>
