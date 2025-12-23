@@ -30,7 +30,7 @@ export default function ContactPage() {
                 For general inquiries, bugs, or feature requests.
               </p>
               <Button asChild className="w-full">
-                <a href="dianaabasiekpenyong@gmail.com">support@rekur-app.com</a>
+                <a href="mailto:dianaabasiekpenyong@gmail.com">support@rekur-app.com</a>
               </Button>
             </Card>
 
@@ -58,7 +58,7 @@ export default function ContactPage() {
                   </Link>
                 </Button>
                 <Button variant="outline" size="icon" asChild>
-                  <a href="dianaabasiekpenyong@gmail.com">
+                  <a href="mailto:dianaabasiekpenyong@gmail.com">
                     <Mail className="h-5 w-5" />
                   </a>
                 </Button>
