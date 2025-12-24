@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { getFirestore } from 'firebase-admin/firestore';
 import { initializeApp, cert, getApp } from 'firebase-admin/app';
+import { sendEmail } from '@/lib/nodemailer';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -28,6 +29,7 @@ export async function POST(request) {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const uid = session.metadata.firebaseUid;
+    const userEmail = session.customer_details?.email; // Get email from Stripe session
 
     if (!uid) {
       console.warn('No firebaseUid in metadata');
@@ -55,6 +57,25 @@ export async function POST(request) {
       });
 
       console.log(`User ${uid} upgraded to ${plan}`);
+
+      // Send Confirmation Email via Nodemailer
+      if (userEmail) {
+        await sendEmail({
+          to: userEmail,
+          subject: 'Payment Successful - Welcome to Rekur! 🚀',
+          html: `
+            <div style="font-family: Arial, sans-serif; color: #333;">
+              <h2 style="color: #2563eb;">Upgrade Complete!</h2>
+              <p>Hello,</p>
+              <p>Your payment was successful. You have been upgraded to the <strong>${plan.toUpperCase()}</strong> plan.</p>
+              <p>You now have full access to premium features.</p>
+              <br/>
+              <a href="https://www.rekur-app.com/dashboard" style="background-color: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
+            </div>
+          `
+        });
+      }
+
     } catch (err) {
       console.error('Failed to update user:', err);
       return new Response('Update failed', { status: 500 });
