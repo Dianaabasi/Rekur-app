@@ -1,10 +1,10 @@
 'use client';
-export const dynamic = 'force-dynamic'; // Disables prerendering
+export const dynamic = 'force-dynamic';
 
-import { useState, useContext } from 'react';
-import { getAuth, signInWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { useState } from 'react';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { app } from '@/lib/firebase';
-import { AuthContext } from '@/context/AuthContext';
+import { useAuth } from '@/context/AuthContext'; 
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +14,6 @@ import Image from 'next/image';
 import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
 
 const auth = getAuth(app);
-const googleProvider = new GoogleAuthProvider();
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -22,7 +21,8 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const { setUser } = useContext(AuthContext);
+  
+  const { loginWithGoogle } = useAuth(); // Only import what we need
   const router = useRouter();
 
   const handleLogin = async (e) => {
@@ -30,50 +30,45 @@ export default function Login() {
     setLoading(true);
     setError('');
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      setUser(userCredential.user);
+      await signInWithEmailAndPassword(auth, email, password);
+      // DO NOT call setUser here. The Context handles it automatically.
       router.push('/dashboard');
     } catch (err) {
-      setError('Invalid email or password. Please try again.');
       console.error(err);
+      setError('Invalid email or password. Please try again.');
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleGoogle = async () => {
     setLoading(true);
     setError('');
     try {
-      const userCredential = await signInWithPopup(auth, googleProvider);
-      setUser(userCredential.user);
+      await loginWithGoogle(); // Uses the Context function (Popup)
       router.push('/dashboard');
     } catch (err) {
-      setError('Google sign-in failed. Please try again.');
       console.error(err);
+      setError('Google sign-in failed. Please try again.');
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-8">
-        {/* Logo */}
         <div className="flex justify-center">
           <Link href="/" className="flex items-center gap-2">
             <Image src="/rekur.png" alt="Rekur" width={100} height={100} />
           </Link>
         </div>
 
-        {/* Header */}
         <div className="text-center">
           <h1 className="text-2xl font-bold">Welcome Back</h1>
           <p className="text-sm text-muted-foreground">Sign in to manage your subscriptions</p>
         </div>
 
-        {/* Error */}
         {error && <div className="text-destructive text-sm text-center">{error}</div>}
 
-        {/* Email/Password Form */}
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <Label htmlFor="email">Email Address</Label>
@@ -119,14 +114,12 @@ export default function Login() {
           </Button>
         </form>
 
-        {/* Forgot Password BELOW Button */}
         <div className="text-center">
           <Link href="/forgot-password" className="text-xs text-primary hover:underline">
             Forgot password?
           </Link>
         </div>
 
-        {/* Google Button */}
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
             <span className="w-full border-t" />
@@ -135,6 +128,7 @@ export default function Login() {
             <span className="bg-background px-2 text-muted-foreground">Or sign in with</span>
           </div>
         </div>
+
         <Button
           type="button"
           variant="outline"
@@ -146,7 +140,6 @@ export default function Login() {
           Sign in with Google
         </Button>
 
-        {/* Sign Up Link */}
         <p className="text-center text-sm text-muted-foreground">
           Don`t have an account?{' '}
           <Link href="/register" className="text-primary hover:underline">

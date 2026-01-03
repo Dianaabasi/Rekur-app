@@ -89,7 +89,13 @@
 'use client';
 
 import { createContext, useState, useEffect, useContext } from 'react';
-import { getAuth, onAuthStateChanged, signOut, signInWithRedirect, GoogleAuthProvider, getRedirectResult } from 'firebase/auth';
+import { 
+  getAuth, 
+  onAuthStateChanged, 
+  signOut, 
+  signInWithPopup, 
+  GoogleAuthProvider 
+} from 'firebase/auth';
 import { app } from '@/lib/firebase';
 import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
@@ -104,11 +110,12 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Keeping these to prevent "undefined" errors if other components check them
+  const [phone, setPhone] = useState(''); 
+  const [stripeCustomerId, setStripeCustomerId] = useState(null); 
   const router = useRouter();
 
   useEffect(() => {
-    getRedirectResult(auth).catch((error) => console.error("Redirect login error:", error));
-
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
@@ -117,14 +124,21 @@ export function AuthProvider({ children }) {
           if (snap.exists()) {
             const data = snap.data();
             setPlan(data?.plan || 'free');
+            setPhone(data?.phone || '');
+            setStripeCustomerId(data?.stripeCustomerId || data?.lemonCustomerId || null);
           } else {
             setPlan('free');
           }
           setLoading(false);
+        }, (error) => {
+          console.error("Auth Snapshot Error:", error);
+          setLoading(false); // Ensure loading stops even on error
         });
         return () => unsubSnapshot();
       } else {
         setPlan(null);
+        setPhone('');
+        setStripeCustomerId(null);
         setLoading(false);
       }
     });
@@ -134,8 +148,14 @@ export function AuthProvider({ children }) {
   const loginWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
-    try { await signInWithRedirect(auth, provider); } 
-    catch (error) { console.error("Login failed:", error); throw error; }
+    try {
+      // Changed back to Popup to fix Cross-Origin errors
+      await signInWithPopup(auth, provider);
+      // No need to redirect manually here; the Login page handles the routing
+    } catch (error) {
+      console.error("Google Login failed:", error);
+      throw error;
+    }
   };
 
   const handleSignOut = async () => {
@@ -144,7 +164,15 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, plan, loading, loginWithGoogle, signOut: handleSignOut }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      plan, 
+      loading, 
+      phone, 
+      stripeCustomerId, 
+      loginWithGoogle, 
+      signOut: handleSignOut 
+    }}>
       {children}
     </AuthContext.Provider>
   );
