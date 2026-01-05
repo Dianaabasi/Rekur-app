@@ -16,6 +16,12 @@ export async function POST(request) {
     // 1. Validate Signature
     const rawBody = await request.text();
     const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET;
+    
+    if (!secret) {
+      console.error('CRITICAL: LEMONSQUEEZY_WEBHOOK_SECRET is missing.');
+      return new Response('Server Config Error', { status: 500 });
+    }
+
     const hmac = crypto.createHmac('sha256', secret);
     const digest = Buffer.from(hmac.update(rawBody).digest('hex'), 'utf8');
     const signature = Buffer.from(request.headers.get('x-signature') || '', 'utf8');
@@ -27,6 +33,7 @@ export async function POST(request) {
     const payload = JSON.parse(rawBody);
     const eventName = payload.meta.event_name;
     const data = payload.data.attributes;
+    const { type, id: objectId } = payload.data; // Extract root type and ID for subscriptions
     const customData = payload.meta.custom_data; // This contains user_id
 
     // 2. Handle Subscription Created/Updated
@@ -53,17 +60,33 @@ export async function POST(request) {
       ];
 
       if (proVariants.includes(variantId)) plan = 'pro';
-      if (businessVariants.includes(variantId)) plan = 'business';
+      else if (businessVariants.includes(variantId)) plan = 'business';
 
-      // Update Firestore
+      if (plan === 'free') {
+         console.warn(`Variant ID ${variantId} did not match any Pro or Business IDs.`);
+      }
+
+      // --- FIX START: Intelligent ID Selection ---
+      // Subscriptions have the ID at the root (payload.data.id)
+      // Orders have the ID in attributes (data.identifier)
+      let lemonSubscriptionId = null;
+      
+      if (type === 'subscriptions') {
+        lemonSubscriptionId = objectId; 
+      } else if (data.identifier) {
+        lemonSubscriptionId = data.identifier; 
+      }
+      // --- FIX END ---
+
+      // Update Firestore (With || null check to prevent crashes)
       await db.doc(`users/${userId}`).update({
         plan: plan,
-        lemonCustomerId: data.customer_id,
-        lemonSubscriptionId: data.identifier, // For cancelling later
+        lemonCustomerId: data.customer_id ? data.customer_id.toString() : null,
+        lemonSubscriptionId: lemonSubscriptionId || null, 
         updatedAt: new Date().toISOString(),
       });
 
-      console.log(`User ${userId} upgraded to ${plan} via Lemon Squeezy`);
+      console.log(`User ${userId} upgraded to ${plan} via Lemon Squeezy (ID: ${lemonSubscriptionId})`);
 
       // 3. Send Email Notification (Only on creation to avoid spam)
       if (eventName === 'subscription_created' || eventName === 'order_created') {
