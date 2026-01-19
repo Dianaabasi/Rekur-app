@@ -110,7 +110,6 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
-  // Keeping these to prevent "undefined" errors if other components check them
   const [phone, setPhone] = useState(''); 
   const [stripeCustomerId, setStripeCustomerId] = useState(null); 
   const router = useRouter();
@@ -132,7 +131,7 @@ export function AuthProvider({ children }) {
           setLoading(false);
         }, (error) => {
           console.error("Auth Snapshot Error:", error);
-          setLoading(false); // Ensure loading stops even on error
+          setLoading(false);
         });
         return () => unsubSnapshot();
       } else {
@@ -149,9 +148,7 @@ export function AuthProvider({ children }) {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     try {
-      // Changed back to Popup to fix Cross-Origin errors
       await signInWithPopup(auth, provider);
-      // No need to redirect manually here; the Login page handles the routing
     } catch (error) {
       console.error("Google Login failed:", error);
       throw error;

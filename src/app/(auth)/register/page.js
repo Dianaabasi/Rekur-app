@@ -1,228 +1,166 @@
 'use client';
-export const dynamic = 'force-dynamic'; // Disables prerendering
 
-
-import { useState, useContext } from 'react';
-import { getAuth, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, updateProfile } from 'firebase/auth';
-import { getFirestore, doc, setDoc } from 'firebase/firestore';
-import { parsePhoneNumber } from 'libphonenumber-js';
+import { useState } from 'react';
+import { getAuth, createUserWithEmailAndPassword, updateProfile, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { app } from '@/lib/firebase';
-import { AuthContext } from '@/context/AuthContext';
+import { getFirestore, doc, setDoc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Eye, EyeOff, User, Mail, Phone, Lock } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext'; // Import the hook
+import { Loader2 } from 'lucide-react'; // Better loading icon
 
 const auth = getAuth(app);
 const db = getFirestore(app);
-const googleProvider = new GoogleAuthProvider();
 
 export default function Register() {
-  const [fullName, setFullName] = useState('');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('+1');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const { setUser } = useContext(AuthContext);
+  
+  // We do NOT need setUser here. The AuthContext listens for changes automatically.
+  const { loginWithGoogle } = useAuth(); 
   const router = useRouter();
 
-  const validatePhone = (value) => {
-    try {
-      const phoneNumber = parsePhoneNumber(value);
-      return phoneNumber && phoneNumber.isValid();
-    } catch {
-      return false;
-    }
+  const createFirestoreUser = async (user) => {
+    const userRef = doc(db, 'users', user.uid);
+    await setDoc(userRef, {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName || name,
+      plan: 'free',
+      createdAt: new Date().toISOString(),
+    }, { merge: true }); // merge prevents overwriting if auto-heal already ran
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    setLoading(true);
     setError('');
 
-    if (!fullName.trim()) return setError('Full name is required');
-    if (password !== confirmPassword) return setError('Passwords do not match');
-    if (!validatePhone(phone)) return setError('Please enter a valid phone number with country code');
-
-    setLoading(true);
     try {
+      // 1. Create Auth User
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await updateProfile(userCredential.user, { displayName: fullName });
+      const user = userCredential.user;
 
-      const phoneNumber = parsePhoneNumber(phone);
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        fullName,
-        email,
-        phone: phoneNumber.formatInternational(),
-        plan: 'free',
-        teamMembers: [],
-      });
+      // 2. Update Display Name
+      await updateProfile(user, { displayName: name });
 
-      setUser(userCredential.user);
+      // 3. Create Database Entry
+      await createFirestoreUser(user);
+
+      // 4. Redirect (Context handles state update automatically)
       router.push('/dashboard');
+
     } catch (err) {
-      setError('Registration failed. Please try again.');
       console.error(err);
+      if (err.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Try logging in.');
+      } else {
+        setError(err.message || 'Registration failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleGoogle = async () => {
     setLoading(true);
     setError('');
     try {
-      const userCredential = await signInWithPopup(auth, googleProvider);
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        fullName: userCredential.user.displayName || '',
-        email: userCredential.user.email || '',
-        phone: '',
-        plan: 'free',
-        teamMembers: [],
-      }, { merge: true });
-      setUser(userCredential.user);
+      // Use the context function which uses signInWithPopup (Safe for cross-origin)
+      await loginWithGoogle();
+      // The context/auth listener will detect the new user.
+      // We rely on the "auto-heal" in the dashboard or checkout to create the DB record for Google users
+      // OR we can force it here if we want to be safe:
+      if (auth.currentUser) {
+         await createFirestoreUser(auth.currentUser);
+      }
       router.push('/dashboard');
     } catch (err) {
-      setError('Google sign-up failed. Please try again.');
       console.error(err);
+      setError('Google sign-in failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-8">
-        {/* Logo */}
         <div className="flex justify-center">
           <Link href="/" className="flex items-center gap-2">
             <Image src="/rekur.png" alt="Rekur" width={100} height={100} />
           </Link>
         </div>
 
-        {/* Header */}
         <div className="text-center">
-          <h1 className="text-2xl font-bold">Create Account</h1>
-          <p className="text-sm text-muted-foreground">Join Rekur and take control of your subscriptions</p>
+          <h1 className="text-2xl font-bold">Create an Account</h1>
+          <p className="text-sm text-muted-foreground">Start tracking your subscriptions today</p>
         </div>
 
-        {/* Error */}
-        {error && <div className="text-destructive text-sm text-center">{error}</div>}
+        {error && (
+          <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/20 rounded-md text-center">
+            {error}
+          </div>
+        )}
 
-        {/* Form */}
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
-            <Label htmlFor="fullName">Full Name</Label>
-            <div className="relative">
-              <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="fullName"
-                placeholder="John Doe"
-                className="pl-10"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-              />
-            </div>
+            <Label htmlFor="name">Full Name</Label>
+            <Input
+              id="name"
+              type="text"
+              placeholder="John Doe"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
           </div>
-
           <div>
             <Label htmlFor="email">Email Address</Label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                className="pl-10"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
+            <Input
+              id="email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
           </div>
-
-          <div>
-            <Label htmlFor="phone">Phone Number</Label>
-            <div className="relative">
-              <Phone className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="+1 (555) 000-0000"
-                className="pl-10"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                required
-              />
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">Include country code (e.g. +1)</p>
-          </div>
-
           <div>
             <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                placeholder="••••••••"
-                className="pl-10 pr-10"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="confirmPassword">Confirm Password</Label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="confirmPassword"
-                type={showConfirm ? 'text' : 'password'}
-                placeholder="••••••••"
-                className="pl-10 pr-10"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirm(!showConfirm)}
-                className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
-              >
-                {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+            <Input
+              id="password"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={6}
+            />
           </div>
 
           <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {loading ? 'Creating Account...' : 'Sign Up'}
           </Button>
         </form>
 
-        {/* Google Button */}
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
             <span className="w-full border-t" />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">Or sign up with</span>
+            <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
           </div>
         </div>
+
         <Button
           type="button"
           variant="outline"
@@ -231,10 +169,9 @@ export default function Register() {
           disabled={loading}
         >
           <Image src="/google-icon.png" alt="Google" width={20} height={20} className="mr-2" />
-          Sign up with Google
+          Google
         </Button>
 
-        {/* Sign In Link */}
         <p className="text-center text-sm text-muted-foreground">
           Already have an account?{' '}
           <Link href="/login" className="text-primary hover:underline">
