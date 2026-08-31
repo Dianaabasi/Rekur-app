@@ -1,22 +1,26 @@
 export const dynamic = 'force-dynamic';
 
-import { getFirestore } from 'firebase-admin/firestore';
-import { initializeApp, cert, getApp } from 'firebase-admin/app';
+import { isAdminRequest } from '@/lib/admin-auth';
+import { getAdminDb } from '@/lib/firebase-admin';
 
-let adminApp;
-try { adminApp = getApp(); } catch {
-  const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString());
-  adminApp = initializeApp({ credential: cert(serviceAccount) });
-}
-const db = getFirestore(adminApp);
+const VALID_PLANS = ['free', 'pro', 'business'];
 
 export async function POST(request) {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer admin-authenticated')) {
+  if (!isAdminRequest(request)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
   const { userId, plan } = await request.json();
+
+  if (!userId || !plan) {
+    return new Response(JSON.stringify({ error: 'Missing userId or plan' }), { status: 400 });
+  }
+
+  if (!VALID_PLANS.includes(plan)) {
+    return new Response(JSON.stringify({ error: 'Invalid plan value' }), { status: 400 });
+  }
+
+  const db = getAdminDb();
   await db.doc(`users/${userId}`).update({ plan });
   return new Response(JSON.stringify({ success: true }), { status: 200 });
 }

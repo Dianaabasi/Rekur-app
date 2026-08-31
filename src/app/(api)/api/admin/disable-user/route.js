@@ -1,22 +1,22 @@
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
-import { initializeApp, cert, getApp } from 'firebase-admin/app';
+export const dynamic = 'force-dynamic';
 
-let adminApp;
-try { adminApp = getApp(); } catch {
-  const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString());
-  adminApp = initializeApp({ credential: cert(serviceAccount) });
-}
-const auth = getAuth(adminApp);
-const db = getFirestore(adminApp);
+import { isAdminRequest } from '@/lib/admin-auth';
+import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 
 export async function POST(request) {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer admin-authenticated')) {
+  if (!isAdminRequest(request)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
   const { userId } = await request.json();
+
+  if (!userId) {
+    return new Response(JSON.stringify({ error: 'Missing userId' }), { status: 400 });
+  }
+
+  const auth = getAdminAuth();
+  const db = getAdminDb();
+
   await auth.updateUser(userId, { disabled: true });
   await db.doc(`users/${userId}`).update({ disabled: true });
   return new Response(JSON.stringify({ success: true }), { status: 200 });

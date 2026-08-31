@@ -2,7 +2,17 @@
 import axios from 'axios';
 
 export async function POST(request) {
+  // Only allow internal calls from the cron job
+  const incomingSecret = request.headers.get('x-cron-secret');
+  if (!process.env.CRON_SECRET || incomingSecret !== process.env.CRON_SECRET) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  }
+
   const { to, body } = await request.json();
+
+  if (!to || !body) {
+    return new Response(JSON.stringify({ error: 'Missing to or body' }), { status: 400 });
+  }
 
   try {
     const response = await axios.post(

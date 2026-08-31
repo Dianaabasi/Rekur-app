@@ -1,48 +1,20 @@
-// src/app/(api)/api/admin/data/route.js
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
-import { initializeApp, cert, getApp } from 'firebase-admin/app';
+export const dynamic = 'force-dynamic';
+
 import Stripe from 'stripe';
-
-// ---------- Init Admin ----------
-let adminApp;
-try {
-  adminApp = getApp('admin-data');
-} catch {
-  const serviceAccount = JSON.parse(
-    Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString()
-  );
-  adminApp = initializeApp(
-    { credential: cert(serviceAccount) },
-    'admin-data'
-  );
-}
-const db = getFirestore(adminApp);
-const auth = getAuth(adminApp);
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-const ADMIN_EMAIL = 'dianaabasiekpenyong@gmail.com';
+import { isAdminRequest } from '@/lib/admin-auth';
+import { getAdminDb } from '@/lib/firebase-admin';
 
 export async function GET(request) {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
+  if (!isAdminRequest(request)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
-  const token = authHeader.split('Bearer ')[1];
-  const isAdmin = token === 'admin-authenticated';
-
-  if (!isAdmin) {
-    return new Response(JSON.stringify({ error: 'Forbidden' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
   try {
+    const db = getAdminDb();
+
     // ---- Users ----
     const userSnap = await db.collection('users').get();
     const users = userSnap.docs.map((doc) => {
@@ -72,16 +44,24 @@ export async function GET(request) {
     });
 
     // ---- Payments (Stripe) ----
-    const charges = await stripe.charges.list({ limit: 100 });
-    const payments = charges.data.map((c) => ({
-      id: c.payment_intent,
-      customer: c.customer,
-      amount: c.amount, // in cents
-      currency: c.currency,
-      created: new Date(c.created * 1000),
-      refunded: c.refunded,
-      receipt_url: c.receipt_url,
-    }));
+    let payments = [];
+    if (process.env.STRIPE_SECRET_KEY) {
+      try {
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+        const charges = await stripe.charges.list({ limit: 100 });
+        payments = charges.data.map((c) => ({
+          id: c.payment_intent,
+          customer: c.customer,
+          amount: c.amount, // in cents
+          currency: c.currency,
+          created: new Date(c.created * 1000),
+          refunded: c.refunded,
+          receipt_url: c.receipt_url,
+        }));
+      } catch (stripeErr) {
+        console.warn('Stripe fetch error in admin data:', stripeErr.message);
+      }
+    }
 
     return new Response(
       JSON.stringify({ users, subs, payments }),

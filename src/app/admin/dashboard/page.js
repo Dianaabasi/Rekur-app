@@ -70,9 +70,11 @@ export default function AdminDashboard() {
       try {
         const [dataRes, cronRes] = await Promise.all([
           fetch('/api/admin/data', {
-            headers: { Authorization: 'Bearer admin-authenticated' },
+            credentials: 'include', // sends httpOnly cookie automatically
           }),
-          fetch('/api/cron/status'),
+          fetch('/api/cron/status', {
+            credentials: 'include',
+          }),
         ]);
 
         if (!dataRes.ok || !cronRes.ok) throw new Error('Failed to load data');
@@ -109,7 +111,9 @@ export default function AdminDashboard() {
   const runCron = async () => {
     toast({ title: 'Running Cron…', description: 'Please wait' });
     try {
-      const res = await fetch('/api/cron/check-reminders');
+      const res = await fetch('/api/cron/check-reminders', {
+        credentials: 'include',
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Cron failed');
 
@@ -125,10 +129,8 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/change-plan', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer admin-authenticated',
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ userId: selectedUser.id, plan: newPlan }),
       });
 
@@ -149,10 +151,8 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/disable-user', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer admin-authenticated',
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ userId: selectedUser.id }),
       });
 
@@ -173,10 +173,8 @@ export default function AdminDashboard() {
     try {
       const res = await fetch('/api/admin/refund-payment', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer admin-authenticated',
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ paymentId: selectedPayment.id }),
       });
 

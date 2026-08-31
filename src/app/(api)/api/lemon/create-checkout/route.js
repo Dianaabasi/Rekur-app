@@ -1,15 +1,6 @@
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
-import { initializeApp, cert, getApp } from 'firebase-admin/app';
+export const dynamic = 'force-dynamic';
 
-// Initialize Firebase Admin
-let adminApp;
-try { adminApp = getApp(); } catch {
-  const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString());
-  adminApp = initializeApp({ credential: cert(serviceAccount) });
-}
-const auth = getAuth(adminApp);
-const db = getFirestore(adminApp);
+import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
 
 export async function POST(request) {
   const { variantId, userId, userEmail } = await request.json();
@@ -19,6 +10,9 @@ export async function POST(request) {
   }
 
   try {
+    const auth = getAdminAuth();
+    const db = getAdminDb();
+
     // 1. Verify/Heal User in Firestore
     let userDoc = await db.doc(`users/${userId}`).get();
     
@@ -53,7 +47,6 @@ export async function POST(request) {
           email: userData.email, // Pre-fill user email
         },
         product_options: {
-          // THIS IS THE FIX: Redirect user to your dashboard after payment
           redirect_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://www.rekur-app.com'}/dashboard?success=true`,
           receipt_button_text: 'Go to Dashboard',
           receipt_thank_you_note: 'Thank you for subscribing to Rekur!'
@@ -63,7 +56,7 @@ export async function POST(request) {
         store: {
           data: {
             type: 'stores',
-            id: process.env.LEMONSQUEEZY_STORE_ID.toString(),
+            id: (process.env.LEMONSQUEEZY_STORE_ID || '').toString(),
           },
         },
         variant: {

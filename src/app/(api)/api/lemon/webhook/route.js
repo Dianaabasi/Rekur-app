@@ -1,15 +1,8 @@
-import crypto from 'crypto';
-import { getFirestore } from 'firebase-admin/firestore';
-import { initializeApp, cert, getApp } from 'firebase-admin/app';
-import { sendEmail } from '@/lib/nodemailer';
+export const dynamic = 'force-dynamic';
 
-// Initialize Firebase Admin
-let adminApp;
-try { adminApp = getApp(); } catch {
-  const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString());
-  adminApp = initializeApp({ credential: cert(serviceAccount) });
-}
-const db = getFirestore(adminApp);
+import crypto from 'crypto';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { sendEmail } from '@/lib/nodemailer';
 
 export async function POST(request) {
   try {
@@ -66,9 +59,7 @@ export async function POST(request) {
          console.warn(`Variant ID ${variantId} did not match any Pro or Business IDs.`);
       }
 
-      // --- FIX START: Intelligent ID Selection ---
-      // Subscriptions have the ID at the root (payload.data.id)
-      // Orders have the ID in attributes (data.identifier)
+      // --- Intelligent ID Selection ---
       let lemonSubscriptionId = null;
       
       if (type === 'subscriptions') {
@@ -76,9 +67,9 @@ export async function POST(request) {
       } else if (data.identifier) {
         lemonSubscriptionId = data.identifier; 
       }
-      // --- FIX END ---
 
-      // Update Firestore (With || null check to prevent crashes)
+      // Update Firestore
+      const db = getAdminDb();
       await db.doc(`users/${userId}`).update({
         plan: plan,
         lemonCustomerId: data.customer_id ? data.customer_id.toString() : null,
@@ -101,7 +92,7 @@ export async function POST(request) {
                 <p>Your payment was successful. You have been upgraded to the <strong>${plan.toUpperCase()}</strong> plan.</p>
                 <p>You now have full access to premium features.</p>
                 <br/>
-                <a href="${process.env.NEXT_PUBLIC_SITE_URL}/dashboard" style="background-color: #6366f1; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
+                <a href="${process.env.NEXT_PUBLIC_SITE_URL || 'https://www.rekur-app.com'}/dashboard" style="background-color: #6366f1; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
               </div>
             `
           });

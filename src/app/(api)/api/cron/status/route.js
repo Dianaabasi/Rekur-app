@@ -1,21 +1,23 @@
-// src/app/api/cron/status/route.js
-import { getFirestore } from 'firebase-admin/firestore';
-import { initializeApp, cert, getApp } from 'firebase-admin/app';
+export const dynamic = 'force-dynamic';
 
-let adminApp;
-try {
-  adminApp = getApp();
-} catch {
-  const serviceAccount = JSON.parse(
-    Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString()
-  );
-  adminApp = initializeApp({ credential: cert(serviceAccount) });
-}
+import { getAdminDb } from '@/lib/firebase-admin';
+import { isAdminRequest } from '@/lib/admin-auth';
 
-const db = getFirestore(adminApp);
+export async function GET(request) {
+  const incomingSecret = request.headers.get('x-cron-secret') || request.headers.get('authorization')?.replace('Bearer ', '');
+  const isCronAuth = process.env.CRON_SECRET && incomingSecret === process.env.CRON_SECRET;
+  const isAdmin = isAdminRequest(request);
 
-export async function GET() {
+  if (!isCronAuth && !isAdmin) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+
   try {
+    const db = getAdminDb();
     const logSnap = await db
       .collection('reminderLogs')
       .orderBy('sentAt', 'desc')

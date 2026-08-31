@@ -4,6 +4,12 @@ import sgMail from '@sendgrid/mail';
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 export async function POST(request) {
+  // Only allow internal calls from the cron job
+  const incomingSecret = request.headers.get('x-cron-secret');
+  if (!process.env.CRON_SECRET || incomingSecret !== process.env.CRON_SECRET) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  }
+
   const { to, subject, dynamicData = {} } = await request.json();
 
   // Validate required fields

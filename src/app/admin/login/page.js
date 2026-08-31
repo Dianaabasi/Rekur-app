@@ -16,28 +16,36 @@ export default function AdminLogin() {
   const { toast } = useToast();
   const router = useRouter();
 
-  const ADMIN_CREDENTIALS = {
-    email: 'dianaabasiekpenyong@gmail.com',
-    password: 'admin12345',
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
-    if (email === ADMIN_CREDENTIALS.email && password === ADMIN_CREDENTIALS.password) {
-      localStorage.setItem('adminAuthenticated', 'true');
-      toast({ title: 'Success', description: 'Logged in as admin.' });
-      router.push('/admin/dashboard');
-    } else {
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (res.ok) {
+        toast({ title: 'Success', description: 'Logged in as admin.' });
+        router.push('/admin/dashboard');
+      } else {
+        toast({
+          title: 'Error',
+          description: 'Invalid email or password.',
+          variant: 'destructive',
+        });
+      }
+    } catch {
       toast({
         title: 'Error',
-        description: 'Invalid email or password.',
+        description: 'Something went wrong. Please try again.',
         variant: 'destructive',
       });
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
@@ -56,6 +64,7 @@ export default function AdminLogin() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 placeholder="admin@example.com"
+                autoComplete="email"
               />
             </div>
 
@@ -68,6 +77,7 @@ export default function AdminLogin() {
                 required
                 placeholder="••••••••"
                 className="pr-10"
+                autoComplete="current-password"
               />
               <button
                 type="button"

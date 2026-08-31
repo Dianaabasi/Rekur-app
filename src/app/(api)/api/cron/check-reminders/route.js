@@ -1,28 +1,18 @@
 // src/app/api/cron/check-reminders/route.js
-import { initializeApp, cert, getApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 import { isToday, subDays, parseISO } from 'date-fns';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { isAdminRequest } from '@/lib/admin-auth';
 
-// ---------- Firebase Admin ----------
-let adminApp;
-try {
-  adminApp = getApp('reminder-cron');
-} catch {
-  const serviceAccount = JSON.parse(
-    Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString('utf-8')
-  );
-  adminApp = initializeApp(
-    { credential: cert(serviceAccount) },
-    'reminder-cron'
-  );
-}
-const db = getFirestore(adminApp);
+
 
 // ---------- Helper API callers ----------
 async function sendEmail(to, subject, dynamicData) {
   const res = await fetch(`${process.env.NEXT_PUBLIC_URL}/api/send-email`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-cron-secret': process.env.CRON_SECRET,
+    },
     body: JSON.stringify({ to, subject, dynamicData }),
   });
   const data = await res.json();
@@ -34,7 +24,10 @@ async function sendEmail(to, subject, dynamicData) {
 async function sendSMS(to, body) {
   const res = await fetch(`${process.env.NEXT_PUBLIC_URL}/api/send-sms`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-cron-secret': process.env.CRON_SECRET,
+    },
     body: JSON.stringify({ to, body }),
   });
   const data = await res.json();
@@ -46,7 +39,10 @@ async function sendSMS(to, body) {
 async function sendWhatsApp(to, body) {
   const res = await fetch(`${process.env.NEXT_PUBLIC_URL}/api/send-whatsapp`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-cron-secret': process.env.CRON_SECRET,
+    },
     body: JSON.stringify({ to, body }),
   });
   const data = await res.json();
@@ -56,8 +52,20 @@ async function sendWhatsApp(to, body) {
 }
 
 // ---------- Main GET (cron) ----------
-export async function GET() {
+export async function GET(request) {
+  const cronSecret = process.env.CRON_SECRET;
+  const incomingSecret = request.headers.get('x-cron-secret')
+    || request.headers.get('authorization')?.replace('Bearer ', '');
+  const isCronAuth = cronSecret && incomingSecret === cronSecret;
+  const isAdmin = isAdminRequest(request);
+
+  if (!isCronAuth && !isAdmin) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  }
+
+
   try {
+    const db = getAdminDb();
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
     console.log(`Cron running at ${now.toISOString()} - checking reminders due ${todayStr}`);
