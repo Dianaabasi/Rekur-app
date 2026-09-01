@@ -10,6 +10,7 @@ import {
   useMotionValue,
   useSpring,
   useTransform,
+  useScroll,
 } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -230,15 +231,23 @@ export default function LandingHero() {
   const { ref: burnRef, value: burnValue } = useAnimatedCounter(66.98, 1.6, 0.8);
   const { ref: daysRef, value: daysValue } = useAnimatedCounter(2, 0.85, 0.95);
 
-  // 3D tilt tracking
+  // Scroll-driven 3D perspective tilt (seamless on mobile without hijacking touch/scroll)
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ['start end', 'end start'],
+  });
+  const scrollRotateX = useTransform(scrollYProgress, [0, 0.5, 1], ['6deg', '0deg', '-6deg']);
+  const scrollScale = useTransform(scrollYProgress, [0, 0.5, 1], [0.96, 1, 0.96]);
+
+  // Desktop 3D mouse tracking
   const tiltRef = useRef(null);
   const rawX = useMotionValue(0);
   const rawY = useMotionValue(0);
   const springConfig = { stiffness: 180, damping: 22, mass: 0.6 };
   const springX = useSpring(rawX, springConfig);
   const springY = useSpring(rawY, springConfig);
-  const rotateX = useTransform(springY, [-0.5, 0.5], ['10deg', '-10deg']);
-  const rotateY = useTransform(springX, [-0.5, 0.5], ['-12deg', '12deg']);
+  const mouseRotateX = useTransform(springY, [-0.5, 0.5], ['10deg', '-10deg']);
+  const mouseRotateY = useTransform(springX, [-0.5, 0.5], ['-12deg', '12deg']);
 
   function handleTiltMove(e) {
     const el = tiltRef.current;
@@ -253,44 +262,21 @@ export default function LandingHero() {
     rawY.set(0);
   }
 
-  // Touch support for mobile
-  function handleTouchMove(e) {
-    const el = tiltRef.current;
-    if (!el || !e.touches[0]) return;
-    const touch = e.touches[0];
-    const { left, top, width, height } = el.getBoundingClientRect();
-    rawX.set((touch.clientX - left) / width - 0.5);
-    rawY.set((touch.clientY - top) / height - 0.5);
-  }
-
-  function handleTouchEnd() {
-    rawX.set(0);
-    rawY.set(0);
-  }
-
-  // Gyroscope tilt for mobile (passive parallax when not touching)
+  // Passive gyroscope tilt for mobile (no touch hijacking)
   useEffect(() => {
-    const isTouching = { current: false };
-    function onTouch() { isTouching.current = true; }
-    function onTouchEnd() { isTouching.current = false; }
-
     function onOrientation(e) {
-      if (isTouching.current) return;
-      // gamma = left/right tilt (-90 to 90), beta = front/back (-180 to 180)
-      const gamma = Math.max(-30, Math.min(30, e.gamma ?? 0));
-      const beta  = Math.max(-30, Math.min(30, (e.beta ?? 0) - 40)); // offset resting angle
-      rawX.set(gamma / 30 * 0.45);
-      rawY.set(beta  / 30 * 0.3);
+      const gamma = Math.max(-25, Math.min(25, e.gamma ?? 0));
+      const beta = Math.max(-25, Math.min(25, (e.beta ?? 0) - 40));
+      rawX.set((gamma / 25) * 0.35);
+      rawY.set((beta / 25) * 0.25);
     }
 
-    window.addEventListener('deviceorientation', onOrientation, { passive: true });
-    window.addEventListener('touchstart', onTouch, { passive: true });
-    window.addEventListener('touchend', onTouchEnd, { passive: true });
-    return () => {
-      window.removeEventListener('deviceorientation', onOrientation);
-      window.removeEventListener('touchstart', onTouch);
-      window.removeEventListener('touchend', onTouchEnd);
-    };
+    if (typeof window !== 'undefined' && window.DeviceOrientationEvent) {
+      window.addEventListener('deviceorientation', onOrientation, { passive: true });
+      return () => {
+        window.removeEventListener('deviceorientation', onOrientation);
+      };
+    }
   }, [rawX, rawY]);
 
   return (
@@ -430,16 +416,30 @@ export default function LandingHero() {
           initial={{ opacity: 0, y: 55, scale: 0.97 }}
           animate={inView ? { opacity: 1, y: 0, scale: 1 } : {}}
           transition={{ duration: 0.8, delay: 0.45, ease: [0.16, 1, 0.3, 1] }}
-          style={{ perspective: 1200 }}
+          style={{
+            perspective: 1200,
+            rotateX: scrollRotateX,
+            scale: scrollScale,
+          }}
         >
           <motion.div
             ref={tiltRef}
             onMouseMove={handleTiltMove}
             onMouseLeave={handleTiltLeave}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            style={{ rotateX, rotateY, transformStyle: 'preserve-3d' }}
-            className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-3 sm:p-6 shadow-2xl shadow-primary/10 will-change-transform touch-none"
+            animate={{
+              y: [0, -6, 0],
+            }}
+            transition={{
+              duration: 6,
+              repeat: Infinity,
+              ease: 'easeInOut',
+            }}
+            style={{
+              rotateX: mouseRotateX,
+              rotateY: mouseRotateY,
+              transformStyle: 'preserve-3d',
+            }}
+            className="relative rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl p-3 sm:p-6 shadow-2xl shadow-primary/10 will-change-transform"
           >
 
             {/* Cycling notification toast */}
